@@ -36,11 +36,8 @@ function getFilenamesInFolder(folderPath)
     
     -- Use LrFileUtils.recursiveFiles to get all files in the folder and subfolders
     for filePath in LrFileUtils.recursiveFiles(folderPath) do
-        -- Only include files with image extensions (e.g., .jpg, .dng)
-        if filePath:match("%.jpg$") or filePath:match("%.dng$") then
-            local filename = LrPathUtils.leafName(filePath)  -- Get the filename without the path
-            table.insert(filenames, filename:match("^(.-)%.%w+$"))
-        end
+        local filename = LrPathUtils.leafName(filePath)  -- Get the filename without the path
+        table.insert(filenames, filename:match("^(.-)%.%w+$"))
     end
 
     return filenames
