@@ -9,6 +9,7 @@ local LrTasks = import "LrTasks"
 
 _G.folder = ""
 _G.color = "red"
+_G.filesString = ""
 
 -- Function to sanitize the folder path
 function sanitizeFolderPath(path)
@@ -31,13 +32,16 @@ function sanitizeFolderPath(path)
 end
 
 -- Function to retrieve the list of filenames from the folder (including subfolders)
+-- return empty array if folderPath is empty
 function getFilenamesInFolder(folderPath)
     local filenames = {}
     
-    -- Use LrFileUtils.recursiveFiles to get all files in the folder and subfolders
-    for filePath in LrFileUtils.recursiveFiles(folderPath) do
-        local filename = LrPathUtils.leafName(filePath)  -- Get the filename without the path
-        table.insert(filenames, filename:match("^(.-)%.%w+$"))
+    if _G.folder ~= "" then
+        -- Use LrFileUtils.recursiveFiles to get all files in the folder and subfolders
+        for filePath in LrFileUtils.recursiveFiles(folderPath) do
+            local filename = LrPathUtils.leafName(filePath)  -- Get the filename without the path
+            table.insert(filenames, filename:match("^(.-)%.%w+$"))
+        end
     end
 
     return filenames
@@ -47,7 +51,22 @@ function loopThrough(context, progressScope)
 	local markedCount = 0;
 	local catalog = LrApplication.activeCatalog()
 	local activeCatalog = catalog:getAllPhotos()
-	local filenamesInFolder = getFilenamesInFolder(_G.folder)
+    local filesInString = {}
+    for word in _G.filesString:gmatch("%S+") do
+        word = word:gsub("%..+$", "")
+        table.insert(filesInString, word)
+    end
+	local filesToCheck = getFilenamesInFolder(_G.folder)
+
+    -- Merge both arrays only if filesInString is not empty
+    if #filesInString > 0 then
+        for _, word in ipairs(filesInString) do
+            table.insert(filesToCheck, word)
+        end
+    else
+        LrDialogs.message("Error", "No images found", "critical")
+    end
+
 	-- Loop through each photo in the catalog and compare filenames
 	for _, photo in ipairs(activeCatalog) do
 		-- Combine folder path and file name to create the full file path
@@ -55,7 +74,7 @@ function loopThrough(context, progressScope)
 		local photoFileName = photo:getFormattedMetadata("fileName"):match("^(.-)%.%w+$")
 
 		-- Compare with filenames in the folder
-		for _, filename in ipairs(filenamesInFolder) do
+		for _, filename in ipairs(filesToCheck) do
 			-- If the photo filename matches any file in the folder, mark it
 			if filename == photoFileName then
 				-- Mark the photo with a red flag
@@ -63,7 +82,7 @@ function loopThrough(context, progressScope)
 				markedCount = markedCount + 1
                 	-- Periodically yield to allow the UI to update
                 if markedCount % 5 == 0 then
-                    progressScope:setPortionComplete(markedCount, #filenamesInFolder)
+                    progressScope:setPortionComplete(markedCount, #filesToCheck)
                     progressScope:setCaption(string.format("%d photos marked", markedCount))
                     LrTasks.yield()  -- Allow UI to update
                 end
@@ -85,20 +104,20 @@ function loopThrough(context, progressScope)
 end
 
 -- Function to mark files in the folder
-function markFilesInFolder(folderPath)
+function markFiles(folderPath)
     -- Start an asynchronous task
     LrTasks.startAsyncTask(function()
 
-        -- Sanitize the folder path
-        folderPath = sanitizeFolderPath(folderPath)
+        -- search folder path if it exists
+        if folderPath ~= "" then
+            -- Get the list of filenames in the folder (and subfolders)
+            _G.folder = folderPath
+            local filenamesInFolder = getFilenamesInFolder(_G.folder)
 
-        -- Get the list of filenames in the folder (and subfolders)
-		_G.folder = folderPath
-		local filenamesInFolder = getFilenamesInFolder(_G.folder)
-
-        if #filenamesInFolder == 0 then
-            LrDialogs.message("Error", "No images found in the folder.", "critical")
-            return
+            if #filenamesInFolder == 0 then
+                LrDialogs.message("Error", "No images found in the folder.", "critical")
+                return
+            end
         end
 
 		-- Get the catalog
@@ -117,7 +136,7 @@ function markFilesInFolder(folderPath)
 end
 
 
--- Function to display the folder path dialog
+-- Function to display the folder path and file text dialog
 LrFunctionContext.callWithContext('folderPathDialog', function( context )
     -- Create the view factory
     local f = LrView.osFactory()
@@ -125,21 +144,35 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
     -- Create an observable property table
     local properties = LrBinding.makePropertyTable( context )
     properties.folderPath = ""  -- Initialize the folder path property
+    properties.fileStrings = "" -- Initialize the files property
     properties.colors = {"red", "yellow", "green", "blue", "purple" }
     properties.chosenColor = "red"
 
+    properties:addObserver("fileStrings", function()
+        properties.fileStrings = properties.fileStrings:gsub("\n", " "):gsub(",", " ")
+    end)
+    
     -- Create the view hierarchy for the dialog
     local contents = f:column {
         spacing = f:control_spacing(),
         bind_to_object = properties,  -- Bind to the property table
         f:static_text {
-            title = "Enter the folder path below:",
+            title = "Enter the folder path below",
         },
         f:edit_field {
             value = LrView.bind 'folderPath',  -- Bind the value to 'folderPath'
             width_in_chars = 50,  -- Width of the text field
             alignment = 'left',
             placeholder = "Paste folder address here",
+        },
+        f:static_text {
+            title = "Optional: Enter file names below (with or without extensions and with spaces)",
+        },
+        f:edit_field {
+            value = LrView.bind 'fileStrings',
+            width_in_chars = 50,
+            alignment = 'left',
+            placeholder = "3903 3498 4928",
         },
         f:row {
             f:static_text {
@@ -166,6 +199,10 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             end,
             text_color = import 'LrColor'( 0, 0, 1 ),
         },
+        f:static_text {
+            title ='v1.2',
+            size = 'small',
+        }
     }
 
     -- Display the dialog
@@ -177,21 +214,25 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
     -- After pressing OK, process the entered folder path
     if result == "ok" then
         local folderPath = properties.folderPath
+        local fileStrings = properties.fileStrings
         _G.color = properties.chosenColor
+        _G.filesString = properties.fileStrings
         
         -- Sanitize the folder path
-        folderPath = sanitizeFolderPath(folderPath)
+        if folderPath ~= "" then
+            folderPath = sanitizeFolderPath(folderPath)
+        end
 
-        -- Validate if the folder path exists
-        if folderPath == "" then
-            LrDialogs.message("Error", "You must enter a valid path", "critical")
-        elseif not LrFileUtils.exists(folderPath) then
+        -- Validate if the folder path exists when fileStrings is empty
+        if folderPath == "" and fileStrings == "" then
+            LrDialogs.message("Error", "You must enter valid values", "critical")
+        elseif not LrFileUtils.exists(folderPath) and fileStrings == "" then
             LrDialogs.message("Error", "The entered path does not exist:\n" .. folderPath, "critical")
         else
         --     LrDialogs.message("Success", "Valid path provided:\n" .. folderPath, "info")
             
             -- Process the files in the folder and mark them
-            markFilesInFolder(folderPath)
+            markFiles(folderPath)
         end
         LrDialogs.stopModalWithResult(LrView, "ok")
     end
