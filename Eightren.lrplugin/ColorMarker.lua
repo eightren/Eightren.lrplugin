@@ -10,6 +10,7 @@ local LrTasks = import "LrTasks"
 _G.folder = ""
 _G.color = "red"
 _G.filesString = ""
+_G.allowPartialMatch = false
 
 -- Function to sanitize the folder path
 function sanitizeFolderPath(path)
@@ -76,7 +77,14 @@ function loopThrough(context, progressScope)
 		-- Compare with filenames in the folder
 		for _, filename in ipairs(filesToCheck) do
 			-- If the photo filename matches any file in the folder, mark it
-			if filename == photoFileName then
+
+            local isPartialMatch = false
+
+            if (_G.allowPartialMatch and string.find(string.lower(photoFileName), string.lower(filename))) then
+                isPartialMatch = true
+            end
+
+			if (filename == photoFileName or isPartialMatch) then
 				-- Mark the photo with a red flag
 				photo:setRawMetadata("colorNameForLabel", _G.color)
 				markedCount = markedCount + 1
@@ -174,6 +182,13 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             alignment = 'left',
             placeholder = "3903 3498 4928",
         },
+        f:checkbox {
+            value = false,
+            title = 'Allow partial match',
+            action = function(state)
+                _G.allowPartialMatch = state
+            end
+        },
         f:row {
             f:static_text {
                 title = "Select color:",
@@ -185,10 +200,7 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             },
         },
         f:static_text {
-            title = "\nIf you find this plugin useful, consider donating!",
-        },
-        f:static_text {
-            title = "Paypal: eightren@gmail.com\nGCash: 0915 387 8745\n\n",
+            title = "\nIf you find this plugin useful, consider donating!\nPaypal: eightren@gmail.com\nGCash: 0915 387 8745\n\n",
         },
         f:static_text {
             title = 'https://eightren.com',
@@ -200,7 +212,7 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             text_color = import 'LrColor'( 0, 0, 1 ),
         },
         f:static_text {
-            title ='v1.2',
+            title ='Version 1.3',
             size = 'small',
         }
     }
