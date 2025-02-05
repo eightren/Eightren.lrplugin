@@ -25,3 +25,5 @@ or
 8RN00123.dng 8RN00456.dng 8RN00789.dng
 ```
 
+# How to install lightroom plugins
+Watch this video: https://www.youtube.com/watch?v=x_Ntz--rhFk
