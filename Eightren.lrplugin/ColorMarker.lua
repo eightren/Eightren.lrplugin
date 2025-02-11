@@ -11,6 +11,7 @@ _G.folder = ""
 _G.color = "red"
 _G.filesString = ""
 _G.allowPartialMatch = false
+_G.selectLockedFilesOnly = false
 
 -- Function to sanitize the folder path
 function sanitizeFolderPath(path)
@@ -32,6 +33,17 @@ function sanitizeFolderPath(path)
     return path
 end
 
+-- Checks if file is locked or not
+function isFileLocked(filename)
+    local file = io.open(filename, "r+")
+    if file then
+        file:close()
+        return false  -- File is not locked
+    else
+        return true   -- File is locked
+    end
+end
+
 -- Function to retrieve the list of filenames from the folder (including subfolders)
 -- return empty array if folderPath is empty
 function getFilenamesInFolder(folderPath)
@@ -41,7 +53,13 @@ function getFilenamesInFolder(folderPath)
         -- Use LrFileUtils.recursiveFiles to get all files in the folder and subfolders
         for filePath in LrFileUtils.recursiveFiles(folderPath) do
             local filename = LrPathUtils.leafName(filePath)  -- Get the filename without the path
-            table.insert(filenames, filename:match("^(.-)%.%w+$"))
+            if _G.selectLockedFilesOnly then
+                if isFileLocked(filePath) then
+                    table.insert(filenames, filename:match("^(.-)%.%w+$"))
+                end
+            else
+                table.insert(filenames, filename:match("^(.-)%.%w+$"))
+            end
         end
     end
 
@@ -64,8 +82,6 @@ function loopThrough(context, progressScope)
         for _, word in ipairs(filesInString) do
             table.insert(filesToCheck, word)
         end
-    else
-        LrDialogs.message("Error", "No images found", "critical")
     end
 
 	-- Loop through each photo in the catalog and compare filenames
@@ -173,6 +189,13 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             alignment = 'left',
             placeholder = "Paste folder address here",
         },
+        f:checkbox {
+            value = false,
+            title = 'Select locked files only',
+            action = function(state)
+                _G.selectLockedFilesOnly = state
+            end
+        },
         f:static_text {
             title = "Optional: Enter file names below (with or without extensions and with spaces)",
         },
@@ -212,7 +235,7 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             text_color = import 'LrColor'( 0, 0, 1 ),
         },
         f:static_text {
-            title ='Version 1.3',
+            title ='Version 1.4',
             size = 'small',
         }
     }
