@@ -12,6 +12,7 @@ _G.color = "red"
 _G.filesString = ""
 _G.allowPartialMatch = false
 _G.selectLockedFilesOnly = false
+_G.onlyMatchCurrentFolder = false
 
 -- Function to sanitize the folder path
 function sanitizeFolderPath(path)
@@ -67,15 +68,29 @@ function getFilenamesInFolder(folderPath)
 end
 
 function loopThrough(context, progressScope)
-	local markedCount = 0;
-	local catalog = LrApplication.activeCatalog()
-	local activeCatalog = catalog:getAllPhotos()
+    local markedCount = 0
+    local catalog = LrApplication.activeCatalog()
+
+    -- Decide photo scope
+    local activeCatalog
+    if _G.onlyMatchCurrentFolder then
+        local sources = catalog:getActiveSources()
+        if sources and sources[1] then
+            activeCatalog = sources[1]:getPhotos()
+        else
+            activeCatalog = {}
+        end
+    else
+        activeCatalog = catalog:getAllPhotos()
+    end
+
     local filesInString = {}
     for word in _G.filesString:gmatch("%S+") do
         word = word:gsub("%..+$", "")
         table.insert(filesInString, word)
     end
-	local filesToCheck = getFilenamesInFolder(_G.folder)
+
+    local filesToCheck = getFilenamesInFolder(_G.folder)
 
     -- Merge both arrays only if filesInString is not empty
     if #filesInString > 0 then
@@ -84,47 +99,37 @@ function loopThrough(context, progressScope)
         end
     end
 
-	-- Loop through each photo in the catalog and compare filenames
-	for _, photo in ipairs(activeCatalog) do
-		-- Combine folder path and file name to create the full file path
-		local photoFullPath = photo:getRawMetadata("path")
-		local photoFileName = photo:getFormattedMetadata("fileName"):match("^(.-)%.%w+$")
+    -- Loop through each photo in the chosen scope
+    for _, photo in ipairs(activeCatalog) do
+        local photoFullPath = photo:getRawMetadata("path")
+        local photoFileName =
+            photo:getFormattedMetadata("fileName"):match("^(.-)%.%w+$")
 
-		-- Compare with filenames in the folder
-		for _, filename in ipairs(filesToCheck) do
-			-- If the photo filename matches any file in the folder, mark it
-
+        for _, filename in ipairs(filesToCheck) do
             local isPartialMatch = false
 
-            if (_G.allowPartialMatch and string.find(string.lower(photoFileName), string.lower(filename))) then
+            if _G.allowPartialMatch and
+               string.find(string.lower(photoFileName), string.lower(filename)) then
                 isPartialMatch = true
             end
 
-			if (filename == photoFileName or isPartialMatch) then
-				-- Mark the photo with a red flag
-				photo:setRawMetadata("colorNameForLabel", _G.color)
-				markedCount = markedCount + 1
-                	-- Periodically yield to allow the UI to update
+            if filename == photoFileName or isPartialMatch then
+                photo:setRawMetadata("colorNameForLabel", _G.color)
+                markedCount = markedCount + 1
+
                 if markedCount % 5 == 0 then
                     progressScope:setPortionComplete(markedCount, #filesToCheck)
-                    progressScope:setCaption(string.format("%d photos marked", markedCount))
-                    LrTasks.yield()  -- Allow UI to update
+                    progressScope:setCaption(
+                        string.format("%d photos marked", markedCount)
+                    )
+                    LrTasks.yield()
                 end
-				break  -- Exit loop once photo is marked
-			end
-		end
-	end
+                break
+            end
+        end
+    end
 
-	-- Notify user with the result
-	-- if markedCount > 0 then
-	-- 	LrDialogs.message("Success", markedCount .. " photos marked in red.", "info")
-	-- else
-	-- 	LrDialogs.message("Error", "No matching photos found in the catalog.", "critical")
-	-- end
-
-
-	-- Finish progress
-	progressScope:done()
+    progressScope:done()
 end
 
 -- Function to mark files in the folder
@@ -212,6 +217,13 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
                 _G.allowPartialMatch = state
             end
         },
+        f:checkbox {
+            value = false,
+            title = 'Only match current folder',
+            action = function(state)
+                _G.onlyMatchCurrentFolder = state
+            end
+        },
         f:row {
             f:static_text {
                 title = "Select color:",
@@ -235,7 +247,7 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             text_color = import 'LrColor'( 0, 0, 1 ),
         },
         f:static_text {
-            title ='Version 1.4',
+            title ='Version 1.5',
             size = 'small',
         }
     }
