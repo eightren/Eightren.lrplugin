@@ -12,7 +12,7 @@ _G.color = "red"
 _G.filesString = ""
 _G.allowPartialMatch = false
 _G.selectLockedFilesOnly = false
-_G.onlyMatchCurrentFolder = false
+_G.onlyMatchCurrentFolder = true
 
 -- Function to sanitize the folder path
 function sanitizeFolderPath(path)
@@ -218,8 +218,8 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             end
         },
         f:checkbox {
-            value = false,
-            title = 'Only match current folder',
+            value = true,
+            title = 'Only match and find photos on the currently opened folder',
             action = function(state)
                 _G.onlyMatchCurrentFolder = state
             end
