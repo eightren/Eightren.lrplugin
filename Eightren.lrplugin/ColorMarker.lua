@@ -8,11 +8,13 @@ local LrPathUtils = import "LrPathUtils"
 local LrTasks = import "LrTasks"
 
 _G.folder = ""
-_G.color = "red"
+_G.color = ""
 _G.filesString = ""
 _G.allowPartialMatch = false
 _G.selectLockedFilesOnly = false
 _G.onlyMatchCurrentFolder = true
+_G.rating = 0
+_G.updateRating = false
 
 -- Function to sanitize the folder path
 function sanitizeFolderPath(path)
@@ -115,6 +117,14 @@ function loopThrough(context, progressScope)
 
             if filename == photoFileName or isPartialMatch then
                 photo:setRawMetadata("colorNameForLabel", _G.color)
+                if _G.updateRating then
+                    -- If rating is 0, set to nil to avoid the "invalid rating" error
+                    local ratingValue = _G.rating
+                    if ratingValue == 0 then
+                        ratingValue = nil
+                    end
+                    photo:setRawMetadata("rating", ratingValue)
+                end
                 markedCount = markedCount + 1
 
                 if markedCount % 5 == 0 then
@@ -155,11 +165,11 @@ function markFiles(folderPath)
 
 		catalog:withProlongedWriteAccessDo( 
 			{
-				 title="Mark " .. _G.color,
+				 title="Marking photos...",
 				 func = loopThrough,
 				 caption="Initializing plugin",
 				 pluginName="Photo Marker",
-				 optionalMessage = "Marks the photos in " .. _G.color,
+				 optionalMessage = "Marks the photos",
 			})
     end) -- end LrTasks.startAsyncTask
 end
@@ -174,8 +184,9 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
     local properties = LrBinding.makePropertyTable( context )
     properties.folderPath = ""  -- Initialize the folder path property
     properties.fileStrings = "" -- Initialize the files property
-    properties.colors = {"red", "yellow", "green", "blue", "purple" }
-    properties.chosenColor = "red"
+    properties.chosenColor = "" -- Initialize the chosen color property
+    properties.rating = 0
+    properties.updateRating = false
 
     properties:addObserver("fileStrings", function()
         properties.fileStrings = properties.fileStrings:gsub("\n", " "):gsub(",", " ")
@@ -186,7 +197,23 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
         spacing = f:control_spacing(),
         bind_to_object = properties,  -- Bind to the property table
         f:static_text {
-            title = "Enter the folder path below",
+            title = "Enter file names below (with or without extensions (.arw, .nef, .jpeg, etc.), names separated with spaces)",
+        },
+        f:edit_field {
+            value = LrView.bind 'fileStrings',
+            width_in_chars = 50,
+            alignment = 'left',
+            placeholder = "3903 3498 4928",
+        },
+        f:checkbox {
+            value = false,
+            title = 'Fuzzy matching of filenames (matches any part of the filename, not just the beginning)',
+            action = function(state)
+                _G.allowPartialMatch = state
+            end
+        },
+        f:static_text {
+            title = "If you have a folder of photos you want to mark, enter the folder the path here.",
         },
         f:edit_field {
             value = LrView.bind 'folderPath',  -- Bind the value to 'folderPath'
@@ -201,22 +228,6 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
                 _G.selectLockedFilesOnly = state
             end
         },
-        f:static_text {
-            title = "Optional: Enter file names below (with or without extensions and with spaces)",
-        },
-        f:edit_field {
-            value = LrView.bind 'fileStrings',
-            width_in_chars = 50,
-            alignment = 'left',
-            placeholder = "3903 3498 4928",
-        },
-        f:checkbox {
-            value = false,
-            title = 'Allow partial match',
-            action = function(state)
-                _G.allowPartialMatch = state
-            end
-        },
         f:checkbox {
             value = true,
             title = 'Only match and find photos on the currently opened folder',
@@ -228,12 +239,39 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             f:static_text {
                 title = "Select color:",
             },
-            f:combo_box {
-                items = LrView.bind 'colors',
-                width = 100,
-                value = LrView.bind 'chosenColor',
+            f:popup_menu {
+                value = LrView.bind "chosenColor",
+                items = {
+                    { title = "No color", value = "" },
+                    { title = "Red", value = "red" },
+                    { title = "Yellow", value = "yellow" },
+                    { title = "Green", value = "green" },
+                    { title = "Blue", value = "blue" },
+                    { title = "Purple", value = "purple" },
+                },
             },
         },
+        f:row {
+            f:checkbox {
+                value = LrView.bind "updateRating", -- Binds to props.updateRating
+                title = 'Check if you want to update the rating of the marked photos',
+            },
+        },
+        f:row {
+            f:static_text { title = "Rating:", alignment = 'right', width = LrView.share "label_width", enabled = LrView.bind "updateRating" },
+            f:popup_menu {
+                enabled = LrView.bind "updateRating",
+                value = LrView.bind "rating",
+                items = {
+                    { title = "☆☆☆☆☆ (None)", value = 0 },
+                    { title = "★☆☆☆☆", value = 1 },
+                    { title = "★★☆☆☆", value = 2 },
+                    { title = "★★★☆☆", value = 3 },
+                    { title = "★★★★☆", value = 4 },
+                    { title = "★★★★★", value = 5 },
+                },
+            },
+        },  
         f:static_text {
             title = "\nIf you find this plugin useful, consider donating!\nPaypal: eightren@gmail.com\nGCash: 0915 387 8745\n\n",
         },
@@ -247,14 +285,14 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
             text_color = import 'LrColor'( 0, 0, 1 ),
         },
         f:static_text {
-            title ='Version 1.5',
+            title ='Version 1.6',
             size = 'small',
         }
     }
 
     -- Display the dialog
     local result = LrDialogs.presentModalDialog({
-        title = "Eightren's Auto-Color Marker",
+        title = "Eightren Lightroom Photo Marker",
         contents = contents,
     })
 
@@ -264,6 +302,8 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
         local fileStrings = properties.fileStrings
         _G.color = properties.chosenColor
         _G.filesString = properties.fileStrings
+        _G.rating = properties.rating
+        _G.updateRating = properties.updateRating
         
         -- Sanitize the folder path
         if folderPath ~= "" then
