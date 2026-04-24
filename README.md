@@ -1,7 +1,6 @@
 # Description
 This is a plugin for Adobe Lightroom Classic that marks photos in the chosen color using files in a folder or a text of the filenames that matches the name in the active catalog.
-
-<img width="4630" height="2164" alt="Lightroom marker v2" src="https://github.com/user-attachments/assets/900c495a-65a5-4ea5-beab-1fbaf9a33770" />
+<img width="2000" height="935" alt="Lightroom marker v2 small" src="https://github.com/user-attachments/assets/c44f0484-5512-4d53-9987-989a304a44fb" />
 
 
 # Usage
