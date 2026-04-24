@@ -15,6 +15,8 @@ _G.selectLockedFilesOnly = false
 _G.onlyMatchCurrentFolder = true
 _G.rating = 0
 _G.updateRating = false
+_G.updateFlag = false
+_G.flagValue = 0
 
 -- Function to sanitize the folder path
 function sanitizeFolderPath(path)
@@ -87,9 +89,9 @@ function loopThrough(context, progressScope)
     end
 
     local filesInString = {}
-    for word in _G.filesString:gmatch("%S+") do
-        word = word:gsub("%..+$", "")
-        table.insert(filesInString, word)
+    for token in _G.filesString:gmatch("%S+") do
+        local normalizedToken = token:gsub("%..+$", "")
+        table.insert(filesInString, normalizedToken)
     end
 
     local filesToCheck = getFilenamesInFolder(_G.folder)
@@ -103,7 +105,6 @@ function loopThrough(context, progressScope)
 
     -- Loop through each photo in the chosen scope
     for _, photo in ipairs(activeCatalog) do
-        local photoFullPath = photo:getRawMetadata("path")
         local photoFileName =
             photo:getFormattedMetadata("fileName"):match("^(.-)%.%w+$")
 
@@ -124,6 +125,10 @@ function loopThrough(context, progressScope)
                         ratingValue = nil
                     end
                     photo:setRawMetadata("rating", ratingValue)
+                end
+                -- Flag logic
+                if _G.updateFlag then
+                    photo:setRawMetadata("pickStatus", _G.flagValue)
                 end
                 markedCount = markedCount + 1
 
@@ -159,9 +164,8 @@ function markFiles(folderPath)
             end
         end
 
-		-- Get the catalog
-		local catalog = LrApplication.activeCatalog()
-		local activeCatalog = catalog:getAllPhotos()
+        -- Get the catalog
+        local catalog = LrApplication.activeCatalog()
 
 		catalog:withProlongedWriteAccessDo( 
 			{
@@ -174,6 +178,50 @@ function markFiles(folderPath)
     end) -- end LrTasks.startAsyncTask
 end
 
+local function sectionHeading(f, title, subtitle)
+    return f:column {
+        spacing = 2,
+        fill_horizontal = 1,
+        f:static_text {
+            title = title,
+        },
+        f:static_text {
+            title = subtitle,
+            size = 'small',
+        },
+    }
+end
+
+local function labeledRow(f, label, control, note)
+    local rows = {
+        spacing = f:label_spacing(),
+        fill_horizontal = 1,
+        f:static_text {
+            title = label,
+            width = LrView.share("label_width"),
+            alignment = 'right',
+        },
+        control,
+    }
+
+    if note then
+        table.insert(rows, f:static_text {
+            title = note,
+            size = 'small',
+        })
+    end
+
+    return f:row(rows)
+end
+
+local function paragraph(f, text)
+    return f:static_text {
+        title = text,
+        fill_horizontal = 1,
+        height_in_lines = 2,
+    }
+end
+
 
 -- Function to display the folder path and file text dialog
 LrFunctionContext.callWithContext('folderPathDialog', function( context )
@@ -182,11 +230,16 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
 
     -- Create an observable property table
     local properties = LrBinding.makePropertyTable( context )
-    properties.folderPath = ""  -- Initialize the folder path property
-    properties.fileStrings = "" -- Initialize the files property
-    properties.chosenColor = "" -- Initialize the chosen color property
-    properties.rating = 0
-    properties.updateRating = false
+    properties.folderPath = _G.folder  -- Initialize the folder path property
+    properties.fileStrings = _G.filesString -- Initialize the files property
+    properties.chosenColor = _G.color -- Initialize the chosen color property
+    properties.rating = _G.rating
+    properties.updateRating = _G.updateRating
+    properties.allowPartialMatch = _G.allowPartialMatch
+    properties.selectLockedFilesOnly = _G.selectLockedFilesOnly
+    properties.onlyMatchCurrentFolder = _G.onlyMatchCurrentFolder
+    properties.updateFlag = false  -- Toggle for the flag
+    properties.flagValue = 0       -- Default to "Unflagged"
 
     properties:addObserver("fileStrings", function()
         properties.fileStrings = properties.fileStrings:gsub("\n", " "):gsub(",", " ")
@@ -195,50 +248,90 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
     -- Create the view hierarchy for the dialog
     local contents = f:column {
         spacing = f:control_spacing(),
-        bind_to_object = properties,  -- Bind to the property table
-        f:static_text {
-            title = "Enter file names below (with or without extensions (.arw, .nef, .jpeg, etc.), names separated with spaces)",
-        },
-        f:edit_field {
-            value = LrView.bind 'fileStrings',
-            width_in_chars = 50,
-            alignment = 'left',
-            placeholder = "3903 3498 4928",
-        },
-        f:checkbox {
-            value = false,
-            title = 'Fuzzy matching of filenames (matches any part of the filename, not just the beginning)',
-            action = function(state)
-                _G.allowPartialMatch = state
-            end
-        },
-        f:static_text {
-            title = "If you have a folder of photos you want to mark, enter the folder the path here.",
-        },
-        f:edit_field {
-            value = LrView.bind 'folderPath',  -- Bind the value to 'folderPath'
-            width_in_chars = 50,  -- Width of the text field
-            alignment = 'left',
-            placeholder = "Paste folder address here",
-        },
-        f:checkbox {
-            value = false,
-            title = 'Select locked files only',
-            action = function(state)
-                _G.selectLockedFilesOnly = state
-            end
-        },
-        f:checkbox {
-            value = true,
-            title = 'Only match and find photos on the currently opened folder',
-            action = function(state)
-                _G.onlyMatchCurrentFolder = state
-            end
-        },
-        f:row {
+        bind_to_object = properties,
+        fill_horizontal = 1,
+
+        f:column {
+            spacing = 4,
+            fill_horizontal = 1,
             f:static_text {
-                title = "Select color:",
+                title = "Eightren Lightroom Photo Marker",
             },
+            f:static_text {
+                title = "Match photos by filename or source folder, then apply label color and optional rating in one pass.",
+                height_in_lines = 2,
+                fill_horizontal = 1,
+            },
+        },
+
+        f:separator { fill_horizontal = 1 },
+
+        sectionHeading(
+            f,
+            "1. Choose What To Match",
+            "Use either a filename list, a source folder, or both. Folder matches scan subfolders automatically."
+        ),
+        paragraph(
+            f,
+            "Paste filenames separated by spaces, commas, or line breaks. Extensions are optional and will be ignored during matching."
+        ),
+        labeledRow(
+            f,
+            "Filenames",
+            f:edit_field {
+                value = LrView.bind 'fileStrings',
+                width_in_chars = 52,
+                alignment = 'left',
+                immediate = true,
+                placeholder = "3903 3498 4928",
+            }
+        ),
+        f:checkbox {
+            value = LrView.bind 'allowPartialMatch',
+            title = 'Allow partial filename matches',
+        },
+        paragraph(
+            f,
+            "Add a folder when the source files already exist on disk and you want this plugin to build the filename list for you."
+        ),
+        labeledRow(
+            f,
+            "Source folder",
+            f:edit_field {
+                value = LrView.bind 'folderPath',
+                width_in_chars = 52,
+                alignment = 'left',
+                immediate = true,
+                placeholder = "/Volumes/Shoot/Selects",
+            }
+        ),
+        f:checkbox {
+            value = LrView.bind 'selectLockedFilesOnly',
+            title = 'Only select locked files from source folder',
+        },
+
+        f:separator { fill_horizontal = 1 },
+
+        sectionHeading(
+            f,
+            "2. Define Search Scope",
+            "Control whether matching runs only against current Lightroom source or across entire catalog."
+        ),
+        f:checkbox {
+            value = LrView.bind 'onlyMatchCurrentFolder',
+            title = 'Limit search to currently opened folder or collection',
+        },
+
+        f:separator { fill_horizontal = 1 },
+
+        sectionHeading(
+            f,
+            "3. Choose Metadata To Apply",
+            "Selected metadata will be written to every matched photo."
+        ),
+        labeledRow(
+            f,
+            "Color label",
             f:popup_menu {
                 value = LrView.bind "chosenColor",
                 items = {
@@ -250,15 +343,15 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
                     { title = "Purple", value = "purple" },
                 },
             },
+            "Leave as No color to clear existing labels."
+        ),
+        f:checkbox {
+            value = LrView.bind "updateRating",
+            title = 'Update star rating for matched photos',
         },
-        f:row {
-            f:checkbox {
-                value = LrView.bind "updateRating", -- Binds to props.updateRating
-                title = 'Check if you want to update the rating of the marked photos',
-            },
-        },
-        f:row {
-            f:static_text { title = "Rating:", alignment = 'right', width = LrView.share "label_width", enabled = LrView.bind "updateRating" },
+        labeledRow(
+            f,
+            "Rating",
             f:popup_menu {
                 enabled = LrView.bind "updateRating",
                 value = LrView.bind "rating",
@@ -270,30 +363,68 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
                     { title = "★★★★☆", value = 4 },
                     { title = "★★★★★", value = 5 },
                 },
+            }
+        ),
+        f:column {
+            -- Flag Toggle
+            f:checkbox {
+                title = "Check if you want to update the flag",
+                value = LrView.bind "updateFlag",
             },
-        },  
-        f:static_text {
-            title = "\nIf you find this plugin useful, consider donating!\nPaypal: eightren@gmail.com\nGCash: 0915 387 8745\n\n",
+
+            -- Flag Dropdown
+            f:row {
+                f:static_text { 
+                    title = "Flag:", 
+                    enabled = LrView.bind "updateFlag",
+                    width = LrView.share "label_width" 
+                },
+                f:popup_menu {
+                    value = LrView.bind "flagValue",
+                    enabled = LrView.bind "updateFlag",
+                    items = {
+                        { title = "Flagged", value = 1 },
+                        { title = "Unflagged", value = 0 },
+                        { title = "Rejected", value = -1 },
+                    },
+                },
+            },
         },
+
+        f:separator { fill_horizontal = 1 },
+
+        sectionHeading(
+            f,
+            "About",
+            "Built by Eightren. Support development if this tool saves time in your workflow."
+        ),
         f:static_text {
-            title = 'https://eightren.com',
-            size = 'small',
-            mouse_down = function()
-            local LrHttp = import 'LrHttp'
-            LrHttp.openUrlInBrowser('https://eightren.com')
-            end,
-            text_color = import 'LrColor'( 0, 0, 1 ),
+            title = "Donations: PayPal eightren@gmail.com   |   GCash 0915 387 8745",
+            fill_horizontal = 1,
         },
-        f:static_text {
-            title ='Version 1.6',
-            size = 'small',
-        }
+        f:row {
+            spacing = f:label_spacing(),
+            f:static_text {
+                title = 'https://eightren.com',
+                size = 'small',
+                mouse_down = function()
+                    local LrHttp = import 'LrHttp'
+                    LrHttp.openUrlInBrowser('https://eightren.com')
+                end,
+                text_color = import 'LrColor'(0, 0, 1),
+            },
+            f:static_text {
+                title = 'Version 2.0',
+                size = 'small',
+            },
+        },
     }
 
     -- Display the dialog
     local result = LrDialogs.presentModalDialog({
         title = "Eightren Lightroom Photo Marker",
         contents = contents,
+        actionVerb = "Mark Photos",
     })
 
     -- After pressing OK, process the entered folder path
@@ -304,6 +435,11 @@ LrFunctionContext.callWithContext('folderPathDialog', function( context )
         _G.filesString = properties.fileStrings
         _G.rating = properties.rating
         _G.updateRating = properties.updateRating
+        _G.allowPartialMatch = properties.allowPartialMatch
+        _G.selectLockedFilesOnly = properties.selectLockedFilesOnly
+        _G.onlyMatchCurrentFolder = properties.onlyMatchCurrentFolder
+        _G.updateFlag = properties.updateFlag
+        _G.flagValue = properties.flagValue
         
         -- Sanitize the folder path
         if folderPath ~= "" then
