@@ -2,6 +2,8 @@
 This is a plugin for Adobe Lightroom Classic that marks photos in the chosen color using files in a folder or a text of the filenames that matches the name in the active catalog.
 <img width="2000" height="935" alt="Lightroom marker v2 small" src="https://github.com/user-attachments/assets/c44f0484-5512-4d53-9987-989a304a44fb" />
 
+# How to use this plugin in lightroom
+Just download the "Eightren.lrplugin" folder from this repo. Double-click it, and if you have Lightroom installed, should add it as a plugin. This plugin can be found when in the Library Module, under Library dropdown > Plug-in extras > Eightren's Tools > Mark Photos
 
 # Usage
 <b>For folders</b>: paste the folder path that contains the reference photos in the first text field. The plugin will try to find all photos inside the folder. For example:
